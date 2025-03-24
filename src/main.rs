@@ -388,7 +388,7 @@ fn main() -> eframe::Result<()> {
         // Start with a reasonable default for one workspace, including padding
         [154.0, 92.0] // 142px (button) + 12px (padding)
     } else {
-        [400.0, 434.0] // Match the network widget's larger size
+        [400.0, 434.0] // Keep the network widget's original height
     };
 
     let options = eframe::NativeOptions {
@@ -398,9 +398,17 @@ fn main() -> eframe::Result<()> {
             .with_always_on_top()
             .with_app_id(APP_ID.to_string())
             .with_inner_size(initial_size)
-            .with_min_inner_size([154.0, 92.0]) // Minimum size including padding
-            .with_max_inner_size([1024.0, 92.0]) // Maximum reasonable size
-            .with_resizable(true), // Allow resizing for dynamic width
+            .with_min_inner_size(if args.workspaces {
+                [154.0, 92.0] // Minimum size for workspace switcher
+            } else {
+                [400.0, 434.0] // Fixed size for network widget
+            })
+            .with_max_inner_size(if args.workspaces {
+                [1024.0, 92.0] // Maximum size for workspace switcher
+            } else {
+                [400.0, 434.0] // Fixed size for network widget
+            })
+            .with_resizable(args.workspaces), // Only allow resizing for workspace switcher
         renderer: eframe::Renderer::Glow,
         ..Default::default()
     };
