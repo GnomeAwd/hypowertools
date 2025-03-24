@@ -218,11 +218,36 @@ impl eframe::App for HyprWidgets {
 
                                     // thread::sleep(Duration::from_millis(100));
 
-                                    // Get the window size based on widget type
-                                    let size = if self.workspace_switcher.is_some() {
-                                        (400.0, 92.0)
+                                    // Calculate the actual window size needed based on content
+                                    let size = if let Some(ws) = self.workspace_switcher.as_mut() {
+                                        // Ensure workspace data is up to date
+                                        ws.update();
+                                        
+                                        // Calculate width based on workspace count
+                                        let count = ws.workspace_count();
+                                        
+                                        // Each workspace button is ~142px wide (80px height * 16/9 aspect ratio + spacing)
+                                        // Add padding (12px) and margin (10px spacing between items)
+                                        let button_width = 142.0;
+                                        let spacing = 10.0;
+                                        let padding = 12.0; // 6px on each side
+                                        
+                                        // Calculate total width including padding and spacing
+                                        let width = (count as f32 * button_width) + // Width of all buttons
+                                                  ((count.saturating_sub(1)) as f32 * spacing) + // Spacing between buttons
+                                                  padding; // Total padding (6px on each side)
+                                        
+                                        // Keep height fixed at 92px
+                                        (width, 92.0)
+                                    } else if let Some(nw) = self.network_widget.as_mut() {
+                                        // Update network data
+                                        nw.update();
+                                        
+                                        // Use the network widget's size
+                                        let size = nw.size();
+                                        (size.x, size.y)
                                     } else {
-                                        (132.0, 52.0)
+                                        (100.0, 50.0) // Fallback
                                     };
 
                                     // Calculate position based on the position enum
@@ -254,13 +279,23 @@ impl eframe::App for HyprWidgets {
                                         .output()
                                         .ok();
 
-                                    // thread::sleep(Duration::from_millis(50));
-
-                                    let address = format!("address:{}", address);
-                                    Command::new("hyprctl")
-                                        .args(&["dispatch", "pin", &address])
+                                    let resize_cmd = format!("hyprctl dispatch resizewindowpixel \"exact {} {},address:{}\"", size.0, size.1, address);
+                                    eprintln!("Running command: {}", resize_cmd);
+                                    Command::new("sh")
+                                        .args(&["-c", &resize_cmd])
                                         .output()
                                         .ok();
+                                    // thread::sleep(Duration::from_millis(50));
+
+                                    let address_arg = format!("address:{}", address);
+
+                                    Command::new("hyprctl")
+                                    .args(&["dispatch", "pin", &address_arg])
+                                    .output()
+                                    .ok();
+                                
+                         
+
 
                                     POSITIONED = true;
                                 }
@@ -290,8 +325,8 @@ impl eframe::App for HyprWidgets {
                     
                     let frame = Frame::none()
                         .fill(switcher.colors().surface_container_low)
-                        .rounding(Rounding::same(15.0))
-                        .inner_margin(Margin::same(6.0));
+                        .rounding(Rounding::same(15))
+                        .inner_margin(Margin::same(6));
 
                     frame.show(ui, |ui| {
                         ui.spacing_mut().button_padding = Vec2::ZERO;
@@ -313,17 +348,21 @@ impl eframe::App for HyprWidgets {
                 ctx.request_repaint();
             }
 
-            let size = Vec2::new(132.0, 52.0);
+            let mut size = Vec2::new(132.0, 52.0);
             CentralPanel::default()
                 .frame(Frame::none())
                 .show(ctx, |ui| {
                     let frame = Frame::none()
                         .fill(network.colors().surface_container_low)
-                        .rounding(Rounding::same(8.0))
-                        .inner_margin(Margin::same(6.0));
+                        .rounding(Rounding::same(8))
+                        .inner_margin(Margin::same(6));
 
                     frame.show(ui, |ui| {
                         network.show(ui);
+                        
+                        // Get the actual size needed for the content
+                        let rect = ui.min_rect();
+                        size = Vec2::new(rect.width() + 12.0, 52.0);
                     });
                 });
             
@@ -346,9 +385,10 @@ fn main() -> eframe::Result<()> {
 
     // Set initial size based on widget type
     let initial_size = if args.workspaces {
-        [400.0, 92.0]
+        // Start with a reasonable default for one workspace, including padding
+        [154.0, 92.0] // 142px (button) + 12px (padding)
     } else {
-        [132.0, 52.0]
+        [400.0, 434.0] // Match the network widget's larger size
     };
 
     let options = eframe::NativeOptions {
@@ -358,9 +398,9 @@ fn main() -> eframe::Result<()> {
             .with_always_on_top()
             .with_app_id(APP_ID.to_string())
             .with_inner_size(initial_size)
-            .with_min_inner_size(initial_size)
-            .with_max_inner_size(initial_size)
-            .with_resizable(false),
+            .with_min_inner_size([154.0, 92.0]) // Minimum size including padding
+            .with_max_inner_size([1024.0, 92.0]) // Maximum reasonable size
+            .with_resizable(true), // Allow resizing for dynamic width
         renderer: eframe::Renderer::Glow,
         ..Default::default()
     };
@@ -370,7 +410,13 @@ fn main() -> eframe::Result<()> {
         options,
         Box::new(|cc| {
             cc.egui_ctx.set_visuals(eframe::egui::Visuals::dark());
-            Box::new(HyprWidgets::new(args))
+            
+            // Initialize Phosphor icons
+            let mut fonts = eframe::egui::FontDefinitions::default();
+            egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
+            cc.egui_ctx.set_fonts(fonts);
+            
+            Ok(Box::new(HyprWidgets::new(args)))
         })
     )
 }
