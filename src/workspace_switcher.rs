@@ -447,6 +447,14 @@ impl WorkspaceSwitcher {
         &self.colors
     }
 
+    pub fn workspaces(&self) -> &Vec<Workspace> {
+        &self.workspaces
+    }
+
+    pub fn workspace_count(&self) -> usize {
+        self.workspaces.len()
+    }
+
     fn get_app_icon(&self, ui: &mut Ui, class_name: &str) -> Option<TextureHandle> {
         self.icon_cache.get_or_load(ui, class_name)
     }
@@ -535,33 +543,51 @@ impl WorkspaceSwitcher {
                 
                 let height = 80.0;
                 let width = (height * 16.0) / 9.0;
-                let rounding = Rounding::same(15.0);
+                let rounding = Rounding::same(15);
                 
                 let button = Button::new("")
                     .min_size(Vec2::new(width, height))
                     .fill(if is_current { colors.surface_container_high } else { Color32::from_black_alpha(128) })
                     .rounding(rounding)
                     .stroke((
-                        if is_current { 4.0 } else { 2.0 },
-                        if is_current { colors.primary_fixed_dim } else { Color32::WHITE }
+                        if is_current { 2.0 } else { 0.0 },
+                        colors.primary_fixed_dim
                     ))
-                    .sense(Sense::click());
+                    .frame(false);
                 
                 let response = ui.add(button);
 
                 // Draw background image if available
                 if let Some(bg) = &self.background {
+                    // Create a slightly smaller rect for the background
+                    let inner_rect = response.rect.shrink(2.0);
+                    
+                    // First draw the background image
                     Image::new(bg)
-                        .rounding(Rounding::same(15.0))
-                        .fit_to_exact_size(response.rect.size())
-                        .paint_at(ui, response.rect);
+                        .rounding(Rounding::same(15))
+                        .fit_to_exact_size(inner_rect.size())
+                        .paint_at(ui, inner_rect);
 
-                    // Add a semi-transparent overlay for better visibility
+                    // Add multiple layers for a better blur/dim effect
+                    ui.painter().rect_filled(
+                        inner_rect,
+                        Rounding::same(15),
+                        Color32::from_black_alpha(120), // First layer of dimming
+                    );
+                    
+                    // Add a subtle colored overlay
+                    ui.painter().rect_filled(
+                        inner_rect,
+                        Rounding::same(15),
+                        colors.surface.gamma_multiply(0.3), // Second layer with surface color
+                    );
+                    
+                    // Add extra overlay for current workspace
                     if is_current {
                         ui.painter().rect_filled(
-                            response.rect,
-                            Rounding::same(15.0),
-                            Color32::from_black_alpha(100),
+                            inner_rect,
+                            Rounding::same(15),
+                            Color32::from_black_alpha(80),
                         );
                     }
                 }
@@ -572,7 +598,7 @@ impl WorkspaceSwitcher {
                     workspace_pos,
                     Align2::LEFT_BOTTOM,
                     &workspace.name,
-                    FontId::new(10.0, FontFamily::Proportional),
+                    FontId::new(14.0, FontFamily::Proportional),
                     if is_current {
                         colors.primary_fixed_dim
                     } else {
@@ -593,8 +619,8 @@ impl WorkspaceSwitcher {
                     .collect();
 
                 if !workspace_windows.is_empty() {
-                    let icon_size = 24.0;
-                    let icon_spacing = 4.0;
+                    let icon_size = 26.0; // Reduced from 32.0 to 26.0
+                    let icon_spacing = 4.0; // Reduced spacing
                     let icon_margin = 8.0;
                     let icon_area_width = (icon_size + icon_spacing) * 3.0 - icon_spacing;
                     
