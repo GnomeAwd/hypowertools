@@ -5,15 +5,13 @@ use std::{
     collections::HashMap,
     path::Path,
     cell::RefCell,
-    env,
 };
 
 use eframe::egui::{
-    self,
+
     Align2,
     Button,
     Color32,
-    Context,
     FontFamily,
     FontId,
     Image,
@@ -25,6 +23,7 @@ use eframe::egui::{
     Vec2,
     Rect,
     Pos2,
+    ViewportCommand,
 };
 
 use serde::{Deserialize, Serialize};
@@ -35,9 +34,7 @@ use shellexpand;
 /// Path to the colors configuration file
 const COLORS_CONFIG_PATH: &str = "~/.config/hypr/hyprland/colors.conf";
 /// Default icon size used throughout the application
-const ICON_SIZE: u32 = 24;
-/// Update interval for workspace information
-const UPDATE_INTERVAL: Duration = Duration::from_millis(500);
+
 
 /// Represents a Hyprland workspace
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -110,6 +107,19 @@ struct Window {
 struct WorkspaceInfo {
     id: i32,
     name: String,
+}
+
+/// Information about a monitor
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct Monitor {
+    id: i32,
+    name: String,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    #[serde(rename = "activeWorkspace")]
+    active_workspace: WorkspaceInfo,
 }
 
 /// Cache for storing loaded application icons
@@ -334,6 +344,7 @@ pub struct WorkspaceSwitcher {
     last_update: Instant,
     background: Option<TextureHandle>,
     icon_cache: IconCache,
+    selected_window: Option<String>,
 }
 
 impl WorkspaceSwitcher {
@@ -345,6 +356,7 @@ impl WorkspaceSwitcher {
             last_update: Instant::now(),
             background: None,
             icon_cache: IconCache::new(),
+            selected_window: None,
         };
         
         switcher.update();
@@ -409,12 +421,15 @@ impl WorkspaceSwitcher {
         }
     }
 
+
     fn switch_to_workspace(&mut self, workspace_id: i32) {
         if let Some(workspace) = self.workspaces.iter().find(|w| w.id == workspace_id) {
+            // First switch to the workspace
             Command::new("hyprctl")
                 .args(&["dispatch", "workspace", &workspace.name])
                 .output()
                 .ok();
+
         }
     }
 
@@ -459,12 +474,13 @@ impl WorkspaceSwitcher {
         }
 
         let mut workspace_to_switch = None;
+        let mut should_close = false;
         let windows = Self::get_windows();
         let workspaces = self.workspaces.clone();
         let current_workspace = self.current_workspace;
         let colors = &self.colors;
 
-        // Handle arrow key navigation
+        // Handle arrow key navigation and Tab
         if ui.input(|i| i.key_pressed(Key::ArrowLeft)) {
             if let Some(current_idx) = workspaces.iter().position(|w| w.id == current_workspace) {
                 if current_idx > 0 {
@@ -472,12 +488,45 @@ impl WorkspaceSwitcher {
                 }
             }
         }
-        if ui.input(|i| i.key_pressed(Key::ArrowRight)) {
+        if ui.input(|i| i.key_pressed(Key::ArrowRight) || i.key_pressed(Key::Tab)) {
             if let Some(current_idx) = workspaces.iter().position(|w| w.id == current_workspace) {
                 if current_idx < workspaces.len() - 1 {
                     workspace_to_switch = Some(workspaces[current_idx + 1].id);
                 }
             }
+        }
+
+        // Handle number keys for direct workspace switching
+        for key in [
+            Key::Num0, Key::Num1, Key::Num2, Key::Num3, Key::Num4,
+            Key::Num5, Key::Num6, Key::Num7, Key::Num8, Key::Num9,
+        ] {
+            if ui.input(|i| i.key_pressed(key)) {
+                let num = match key {
+                    Key::Num0 => 10,
+                    Key::Num1 => 1,
+                    Key::Num2 => 2,
+                    Key::Num3 => 3,
+                    Key::Num4 => 4,
+                    Key::Num5 => 5,
+                    Key::Num6 => 6,
+                    Key::Num7 => 7,
+                    Key::Num8 => 8,
+                    Key::Num9 => 9,
+                    _ => continue,
+                };
+                
+                // Find workspace with this number
+                if let Some(workspace) = workspaces.iter().find(|w| w.id == num) {
+                    workspace_to_switch = Some(workspace.id);
+                    should_close = true;
+                }
+            }
+        }
+
+        // Handle closing conditions
+        if ui.input(|i| i.key_pressed(Key::Escape) || i.key_pressed(Key::Enter)) {
+            should_close = true;
         }
 
         ui.horizontal(|ui| {
@@ -533,7 +582,7 @@ impl WorkspaceSwitcher {
 
                 // Draw app icons (top left)
                 let workspace_windows: Vec<String> = windows.iter()
-                    .filter(|w| w.workspace.id == workspace.id && w.class != "hypr_widgets")
+                    .filter(|w| w.workspace.id == workspace.id && w.class != "hypowertools")
                     .map(|w| w.class.clone())
                     .collect::<Vec<String>>();
 
@@ -602,9 +651,13 @@ impl WorkspaceSwitcher {
             }
         });
 
+        // Handle actions after UI
         if let Some(workspace_id) = workspace_to_switch {
             self.switch_to_workspace(workspace_id);
             self.update();
+        }
+        if should_close {
+            ui.ctx().send_viewport_cmd(ViewportCommand::Close);
         }
     }
 
@@ -614,4 +667,5 @@ impl WorkspaceSwitcher {
         // Drop background texture if it exists
         self.background = None;
     }
+
 } 
